@@ -4,10 +4,7 @@
 // @version      0.1.0
 // @description  Export accessible ProcessOn mind-map data as a .pos schema file.
 // @match        https://www.processon.com/view/*
-// @connect      www.processon.com
 // @grant        GM_registerMenuCommand
-// @grant        GM_getValue
-// @grant        GM_setValue
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -16,7 +13,6 @@
 
   const CHART_DEF_IDS_API_PATH = '/api/personal/canvas/get/template/chartdefids';
   const DEF_API_PATH = '/api/personal/diagraming/get/template/def';
-  const DEFAULT_DEF_IDS = {};
 
   function getChartId() {
     const match = location.pathname.match(/\/view\/([^/?#]+)/);
@@ -49,51 +45,7 @@
       .slice(0, 120) || 'processon-export';
   }
 
-  function collectDefIdCandidates(chartId) {
-    const candidates = new Set();
-
-    const saved = GM_getValue(`defId:${chartId}`, '');
-    if (saved) candidates.add(saved);
-
-    if (DEFAULT_DEF_IDS[chartId]) candidates.add(DEFAULT_DEF_IDS[chartId]);
-
-    for (const entry of performance.getEntriesByType('resource')) {
-      try {
-        const url = new URL(entry.name);
-        if (url.pathname === DEF_API_PATH && url.searchParams.get('chartId') === chartId) {
-          const defId = url.searchParams.get('defId');
-          if (defId) candidates.add(defId);
-        }
-      } catch (_) {
-        // Ignore non-URL performance entries.
-      }
-    }
-
-    const html = document.documentElement ? document.documentElement.innerHTML : '';
-    const regex = /defId["'=:\s]+([a-f0-9]{24})/gi;
-    let match;
-    while ((match = regex.exec(html))) {
-      candidates.add(match[1]);
-    }
-
-    return Array.from(candidates);
-  }
-
-  function getDefIdFromPrompt(chartId) {
-    const candidates = collectDefIdCandidates(chartId);
-    const defaultDefId = candidates[0] || '';
-    const message = defaultDefId
-      ? '确认或修改 defId：'
-      : '请输入 defId。可以从接口 URL 的 defId 参数复制：';
-    const defId = prompt(message, defaultDefId);
-    if (!defId) return '';
-
-    const normalized = defId.trim();
-    GM_setValue(`defId:${chartId}`, normalized);
-    return normalized;
-  }
-
-  async function getDefIdFromApi(chartId) {
+  async function getDefinitionId(chartId) {
     const url = new URL(CHART_DEF_IDS_API_PATH, location.origin);
     url.searchParams.set('chartId', chartId);
     url.searchParams.set('template', 'true');
@@ -104,34 +56,18 @@
     }
 
     const data = raw.data || {};
-    const fromMainCanvas = data.mainCanvasId;
-    const fromChartCanvas = Array.isArray(data.chartCanvas)
-      ? data.chartCanvas.find((item) => item && item.canvasId === chartId && item.definitionId)
-      : null;
-    const fromChartDefIds = Array.isArray(data.chartDefIds)
-      ? data.chartDefIds.find((item) => item && item.canvasId === chartId && item.definitionId)
-      : null;
-
-    const defId = fromMainCanvas
-      || (fromChartCanvas && fromChartCanvas.definitionId)
-      || (fromChartDefIds && fromChartDefIds.definitionId)
-      || '';
+    const canvases = [
+      ...(Array.isArray(data.chartCanvas) ? data.chartCanvas : []),
+      ...(Array.isArray(data.chartDefIds) ? data.chartDefIds : []),
+    ];
+    const canvas = canvases.find((item) => item && item.canvasId === chartId && item.definitionId);
+    const defId = canvas ? canvas.definitionId : '';
 
     if (!defId) {
-      throw new Error('画布接口响应中没有找到 definitionId/mainCanvasId');
+      throw new Error('画布接口响应中没有找到当前 chartId 对应的 definitionId');
     }
 
-    GM_setValue(`defId:${chartId}`, defId);
     return defId;
-  }
-
-  async function getDefId(chartId) {
-    try {
-      return await getDefIdFromApi(chartId);
-    } catch (error) {
-      console.warn('[ProcessOn POS Exporter] 自动获取 defId 失败，回退到手动输入', error);
-      return getDefIdFromPrompt(chartId);
-    }
   }
 
   async function requestJson(url) {
@@ -267,8 +203,7 @@
     setButtonBusy(true);
 
     try {
-      const defId = await getDefId(chartId);
-      if (!defId) return;
+      const defId = await getDefinitionId(chartId);
 
       const url = new URL(DEF_API_PATH, location.origin);
       url.searchParams.set('defId', defId);
