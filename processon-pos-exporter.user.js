@@ -16,9 +16,7 @@
 
   const CHART_DEF_IDS_API_PATH = '/api/personal/canvas/get/template/chartdefids';
   const DEF_API_PATH = '/api/personal/diagraming/get/template/def';
-  const DEFAULT_DEF_IDS = {
-    '6367f3360e3e74618c36fb6e': '64abbb3d7621310f823d04d6',
-  };
+  const DEFAULT_DEF_IDS = {};
 
   function getChartId() {
     const match = location.pathname.match(/\/view\/([^/?#]+)/);
