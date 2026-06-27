@@ -60,11 +60,13 @@
       ...(Array.isArray(data.chartCanvas) ? data.chartCanvas : []),
       ...(Array.isArray(data.chartDefIds) ? data.chartDefIds : []),
     ];
-    const canvas = canvases.find((item) => item && item.canvasId === chartId && item.definitionId);
+    const mainCanvasId = data.mainCanvasId || chartId;
+    const canvas = canvases.find((item) => item && item.canvasId === mainCanvasId && item.definitionId)
+      || canvases.find((item) => item && item.definitionId);
     const defId = canvas ? canvas.definitionId : '';
 
     if (!defId) {
-      throw new Error('画布接口响应中没有找到当前 chartId 对应的 definitionId');
+      throw new Error('画布接口响应中没有找到可用的 definitionId');
     }
 
     return defId;
@@ -104,7 +106,7 @@
     return node;
   }
 
-  function normalizeElements(elements) {
+  function normalizeMind(elements) {
     const normalized = { ...elements };
 
     normalized.id = normalized.id || 'root';
@@ -134,6 +136,44 @@
     return normalized;
   }
 
+  function normalizeFlow(elements) {
+    return {
+      ...elements,
+      version: Number.isFinite(Number(elements.version)) ? Number(elements.version) : 0,
+      page: elements.page && typeof elements.page === 'object' ? elements.page : {},
+      elements: elements.elements && typeof elements.elements === 'object' ? elements.elements : {},
+      comments: Array.isArray(elements.comments) ? elements.comments : [],
+      plugins: elements.plugins && typeof elements.plugins === 'object' ? elements.plugins : {},
+      aiContainers: Array.isArray(elements.aiContainers) ? elements.aiContainers : [],
+      insertPageOpts: elements.insertPageOpts && typeof elements.insertPageOpts === 'object' ? elements.insertPageOpts : {},
+      postPayment: elements.postPayment && typeof elements.postPayment === 'object' ? elements.postPayment : {},
+    };
+  }
+
+  function normalizeElements(elements) {
+    if (!elements || typeof elements !== 'object') {
+      throw new Error('data.def 解析后不是对象');
+    }
+
+    if (Array.isArray(elements.children) || elements.structure) {
+      return {
+        elements: normalizeMind(elements),
+        category: 'mind_free',
+        title: elements.title || 'ProcessOn Export',
+      };
+    }
+
+    if (elements.page && elements.elements) {
+      return {
+        elements: normalizeFlow(elements),
+        category: 'flow',
+        title: 'ProcessOn Export',
+      };
+    }
+
+    throw new Error('暂不支持的 ProcessOn schema：未识别到 mind 或 flow 结构');
+  }
+
   function buildPos(raw, chartId, defId) {
     if (!raw || typeof raw !== 'object') {
       throw new Error('接口响应为空或格式错误');
@@ -161,7 +201,7 @@
 
     return {
       diagram: {
-        elements: normalized,
+        elements: normalized.elements,
       },
       meta: {
         exportTime: timestamp,
@@ -171,7 +211,7 @@
           created: timestamp,
           modified: timestamp,
           title,
-          category: normalized.structure && normalized.structure.startsWith('mind') ? 'mind_free' : 'mind_free',
+          category: normalized.category,
         },
         id: chartId,
         cloneId: defId,
